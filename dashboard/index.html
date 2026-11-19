@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Status Mesin Produksi</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700;800&family=Barlow:wght@500;700&display=swap">
+<style>
+  :root {
+    --bg: #14181d;
+    --panel: #1f252c;
+    --text: #f2f4f6;
+    --muted: #9aa5b1;
+    --run: #1fa64a;
+    --idle: #f2c230;
+    --down: #e0262b;
+    --down-dark: #7a0f12;
+    --off: #5b6670;
+    --font-num: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", Arial, sans-serif;
+    --font-txt: "Barlow", Arial, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: var(--font-txt); padding: 1.2vw;
+    display: flex; flex-direction: column; gap: 1vw;
+  }
+
+  header { display: flex; justify-content: space-between; align-items: baseline; }
+  header h1 { font-family: var(--font-num); font-weight: 700; font-size: clamp(1.6rem, 2.6vw, 3rem); }
+  #clock { font-family: var(--font-num); font-weight: 700; font-size: clamp(1.6rem, 2.6vw, 3rem); color: var(--muted); }
+
+  #alert {
+    display: none; background: var(--down); color: #fff; text-align: center;
+    font-family: var(--font-num); font-weight: 800;
+    font-size: clamp(2.4rem, 5vw, 6rem); padding: .3em .5em; border-radius: .15em;
+    animation: blink 1s steps(1) infinite;
+  }
+  #conn {
+    display: none; background: var(--idle); color: #1a1500; text-align: center;
+    font-weight: 700; font-size: clamp(1rem, 1.8vw, 2rem); padding: .4em; border-radius: .2em;
+  }
+
+  #grid {
+    display: grid; gap: 1vw; flex: 1; align-content: start;
+    grid-template-columns: repeat(auto-fit, minmax(clamp(260px, 22vw, 460px), 1fr));
+  }
+
+  .card {
+    background: var(--panel); border-radius: .5vw; overflow: hidden;
+    border-left: 1.2vw solid var(--off); padding: 1.2vw 1.4vw;
+    display: flex; flex-direction: column; gap: .5vw;
+  }
+  .card.RUNNING { border-color: var(--run); }
+  .card.IDLE    { border-color: var(--idle); }
+  .card.OFFLINE { border-color: var(--off); opacity: .75; }
+
+  .top { display: flex; justify-content: space-between; align-items: center; gap: 1vw; }
+  .id { font-family: var(--font-num); font-weight: 800; font-size: clamp(2rem, 3.2vw, 4rem); line-height: 1; }
+  .badge {
+    font-family: var(--font-num); font-weight: 800; line-height: 1;
+    font-size: clamp(1.8rem, 2.8vw, 3.4rem); padding: .2em .5em; border-radius: .2em; color: #fff;
+  }
+  .RUNNING .badge { background: var(--run); }
+  .IDLE .badge    { background: var(--idle); color: #1a1500; }
+  .OFFLINE .badge { background: var(--off); }
+  .DOWN .badge    { background: #fff; color: var(--down); }
+
+  .reason {
+    font-family: var(--font-num); font-weight: 800; color: #fff;
+    font-size: clamp(1.6rem, 2.6vw, 3.2rem); min-height: 1.1em;
+  }
+  .nums { display: grid; grid-template-columns: repeat(3, 1fr); gap: .6vw; }
+  .num .v { font-family: var(--font-num); font-weight: 700; font-size: clamp(2rem, 3.4vw, 4.2rem); line-height: 1.05; }
+  .num .l { color: var(--muted); font-size: clamp(.8rem, 1.1vw, 1.3rem); }
+  .updated { color: var(--muted); font-size: clamp(.85rem, 1.2vw, 1.5rem); }
+
+  /* Mesin DOWN: dua kolom, merah berkedip, huruf jauh lebih besar */
+  .card.DOWN {
+    grid-column: span 2; border-color: #fff;
+    animation: blink 1s steps(1) infinite; color: #fff;
+  }
+  .DOWN .id { font-size: clamp(3.4rem, 6vw, 8rem); }
+  .DOWN .badge { font-size: clamp(3.4rem, 6vw, 8rem); }
+  .DOWN .reason { font-size: clamp(2.2rem, 4vw, 5.5rem); }
+  .DOWN .num .v { font-size: clamp(2.6rem, 4.6vw, 6rem); }
+  .DOWN .num .l, .DOWN .updated { color: #ffe3e3; }
+
+  @keyframes blink {
+    0%   { background: var(--down); }
+    50%  { background: var(--down-dark); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #alert, .card.DOWN { animation: none; background: var(--down); }
+  }
+  @media (max-width: 700px) { .card.DOWN { grid-column: span 1; } }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Status Mesin Produksi</h1>
+    <div id="clock">--:--:--</div>
+  </header>
+  <div id="alert"></div>
+  <div id="conn">Server tidak terjangkau. Menampilkan data terakhir, mencoba lagi...</div>
+  <main id="grid"></main>
+
+<script>
+  // Default: API di server yang sama. Bisa diganti: index.html?api=https://alamat-server
+  const API_BASE = new URLSearchParams(location.search).get('api') || '';
+  const REFRESH_MS = 4000;
+  const TZ = 'Asia/Jakarta';
+
+  const REASON_TEXT = {
+    FAULT_BUTTON: 'MESIN RUSAK (TOMBOL FAULT)',
+    OVERHEAT: 'MOTOR TERLALU PANAS',
+  };
+
+  const grid = document.getElementById('grid');
+  const alertBox = document.getElementById('alert');
+  const connBox = document.getElementById('conn');
+
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  function ago(sec) {
+    if (sec < 60) return sec + ' detik lalu';
+    if (sec < 3600) return Math.floor(sec / 60) + ' menit lalu';
+    return Math.floor(sec / 3600) + ' jam lalu';
+  }
+
+  function card(m, serverNow) {
+    const status = m.status;
+    const temp = m.temperature_c === null ? '--' : m.temperature_c.toFixed(1) + ' °C';
+    const reason = status === 'DOWN' ? (REASON_TEXT[m.reason] || m.reason || '') : '';
+    let updated = 'Belum ada data';
+    if (m.last_seen) {
+      const t = new Date(m.last_seen);
+      const clock = t.toLocaleTimeString('id-ID', { timeZone: TZ, hour12: false });
+      updated = 'Update ' + clock + ' (' + ago(Math.max(0, Math.round((serverNow - t) / 1000))) + ')';
+    }
+    return `
+      <section class="card ${esc(status)}">
+        <div class="top">
+          <div class="id">${esc(m.machine_id)}</div>
+          <div class="badge">${esc(status)}</div>
+        </div>
+        <div class="reason">${esc(reason)}</div>
+        <div class="nums">
+          <div class="num"><div class="v">${m.output_today}</div><div class="l">Output hari ini</div></div>
+          <div class="num"><div class="v">${m.reject_today}</div><div class="l">Reject</div></div>
+          <div class="num"><div class="v">${esc(temp)}</div><div class="l">Suhu motor</div></div>
+        </div>
+        <div class="updated">${esc(updated)}</div>
+      </section>`;
+  }
+
+  async function refresh() {
+    try {
+      const res = await fetch(API_BASE + '/api/machines', { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      const now = new Date(data.server_time);
+
+      grid.innerHTML = data.machines.map((m) => card(m, now)).join('');
+
+      const down = data.machines.filter((m) => m.status === 'DOWN').map((m) => m.machine_id);
+      if (down.length) {
+        alertBox.textContent = 'DOWN: ' + down.join(', ');
+        alertBox.style.display = 'block';
+      } else {
+        alertBox.style.display = 'none';
+      }
+      connBox.style.display = 'none';
+    } catch (e) {
+      connBox.style.display = 'block';   // data lama tetap tampil
+    }
+  }
+
+  function tickClock() {
+    document.getElementById('clock').textContent =
+      new Date().toLocaleTimeString('id-ID', { timeZone: TZ, hour12: false }) + ' WIB';
+  }
+
+  refresh();
+  setInterval(refresh, REFRESH_MS);
+  tickClock();
+  setInterval(tickClock, 1000);
+</script>
+</body>
+</html>
